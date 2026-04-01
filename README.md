@@ -103,6 +103,3 @@ Open `frontend/index.html` in your browser.
 - Stronger LLM integration
 - Deployment with Docker or cloud hosting
 
-## Resume Project Description
-
-Built a simple Retrieval-Augmented Generation (RAG) application that uploads PDFs, generates vector embeddings, retrieves relevant document chunks, and answers user questions using a lightweight local language model with FastAPI and FAISS.
