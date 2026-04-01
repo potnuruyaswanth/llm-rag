@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+faiss-cpu
+numpy
+sentence-transformers
+sentencepiece
+transformers
+torch
+pypdf
+python-multipart
