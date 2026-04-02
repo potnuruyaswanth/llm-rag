@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,11 @@ from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 GENERATION_MODEL_NAME = "google/flan-t5-small"
+STOPWORDS = {
+    "what", "is", "are", "was", "were", "the", "a", "an", "and", "or", "to", "of",
+    "in", "on", "for", "with", "how", "why", "when", "where", "who", "which", "does",
+    "do", "did", "can", "could", "should", "would", "about", "from", "this", "that",
+}
 
 
 @dataclass
@@ -63,12 +69,19 @@ class SimpleRAGPipeline:
         }
 
     def get_answer(self, query: str, top_k: int = 3) -> dict[str, Any]:
-        if self._index is None or not self._chunks:
-            raise ValueError("Upload a PDF before asking questions.")
-
         question = query.strip()
         if not question:
             raise ValueError("Question cannot be empty.")
+
+        if self._index is None or not self._chunks:
+            answer = self._generate_answer(self._build_general_prompt(question))
+            return {
+                "answer": answer,
+                "sources": [],
+                "scores": [],
+                "document": None,
+                "mode": "llm",
+            }
 
         embedder = self._get_embedder()
         query_embedding = embedder.encode(
@@ -89,6 +102,22 @@ class SimpleRAGPipeline:
         if not retrieved_chunks:
             raise ValueError("No relevant context was found for that question.")
 
+        if not self._has_query_overlap(question, retrieved_chunks):
+            return {
+                "answer": f"I could not find information about '{question}' in the uploaded PDF.",
+                "sources": [
+                    {
+                        "source": chunk.source,
+                        "page": chunk.page,
+                        "preview": chunk.text[:180].strip(),
+                    }
+                    for chunk in retrieved_chunks
+                ],
+                "scores": [round(float(score), 4) for score in scores[0][: len(retrieved_chunks)]],
+                "document": self._document_name,
+                "mode": "rag",
+            }
+
         prompt = self._build_prompt(question, retrieved_chunks)
         answer = self._generate_answer(prompt)
 
@@ -104,6 +133,7 @@ class SimpleRAGPipeline:
             ],
             "scores": [round(float(score), 4) for score in scores[0][: len(retrieved_chunks)]],
             "document": self._document_name,
+            "mode": "rag",
         }
 
     def warm_up(self) -> None:
@@ -160,6 +190,18 @@ class SimpleRAGPipeline:
         return tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
 
     @staticmethod
+    def _has_query_overlap(question: str, chunks: list[ChunkRecord]) -> bool:
+        query_terms = {
+            token for token in re.findall(r"[a-zA-Z0-9]+", question.lower())
+            if len(token) > 2 and token not in STOPWORDS
+        }
+        if not query_terms:
+            return True
+
+        combined_context = " ".join(chunk.text.lower() for chunk in chunks)
+        return any(term in combined_context for term in query_terms)
+
+    @staticmethod
     def _split_text(text: str, chunk_size: int = 700, chunk_overlap: int = 120) -> list[str]:
         cleaned = " ".join(text.split())
         if len(cleaned) <= chunk_size:
@@ -193,8 +235,17 @@ class SimpleRAGPipeline:
         )
         return (
             "You are a helpful assistant answering questions only from the provided context. "
-            "If the answer is not in the context, say that clearly.\n\n"
+            "Do not use outside knowledge. If the answer is not clearly present in the context, "
+            "reply with: I could not find that information in the uploaded PDF.\n\n"
             f"Context:\n{context}\n\n"
+            f"Question: {question}\n"
+            "Answer:"
+        )
+
+    @staticmethod
+    def _build_general_prompt(question: str) -> str:
+        return (
+            "You are a helpful assistant. Answer the user's question clearly and concisely.\n\n"
             f"Question: {question}\n"
             "Answer:"
         )

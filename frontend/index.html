@@ -32,19 +32,21 @@
             </div>
 
             <p id="selectedFile" class="muted">No file selected.</p>
+            <p id="activeDocument" class="muted">No document is indexed yet.</p>
             <p id="uploadStatus" class="status">No file uploaded yet.</p>
+            <p id="uploadHint" class="muted">Choose a PDF, then click Upload and Index to use it for RAG.</p>
         </section>
 
         <section class="panel">
             <div class="panel-header">
                 <h2>2. Ask a Question</h2>
-                <p>The answer will use retrieved text from your uploaded file.</p>
+                <p>If a PDF is uploaded, the app answers with RAG. Otherwise it answers directly with the LLM.</p>
             </div>
 
             <label class="label" for="question">Question</label>
             <textarea id="question" rows="4" placeholder="What is the main topic of this document?"></textarea>
 
-            <button id="askBtn" type="button" disabled>Generate Answer</button>
+            <button id="askBtn" type="button">Generate Answer</button>
 
             <div class="result-card">
                 <h3>Answer</h3>
