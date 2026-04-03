@@ -17,4 +17,3 @@ backend/storage/
 .cache/
 .DS_Store
 Thumbs.db
-.gitignore
