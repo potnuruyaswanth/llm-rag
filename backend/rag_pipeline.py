@@ -1,23 +1,32 @@
 from __future__ import annotations
 
+import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import faiss
-import torch
+import numpy as np
+from google import genai
+from google.genai import types
 from pypdf import PdfReader
-from sentence_transformers import SentenceTransformer
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+from dotenv import load_dotenv
 
-EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-GENERATION_MODEL_NAME = "google/flan-t5-small"
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
+EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "gemini-embedding-001")
+GENERATION_MODEL_NAME = os.getenv("GENERATION_MODEL_NAME", "gemini-2.5-flash")
 STOPWORDS = {
     "what", "is", "are", "was", "were", "the", "a", "an", "and", "or", "to", "of",
     "in", "on", "for", "with", "how", "why", "when", "where", "who", "which", "does",
     "do", "did", "can", "could", "should", "would", "about", "from", "this", "that",
 }
+STORAGE_DIR = Path(__file__).resolve().parent / "storage"
+INDEX_PATH = STORAGE_DIR / "faiss.index"
+METADATA_PATH = STORAGE_DIR / "chunks.json"
+MIN_RAG_SCORE = 0.35
 
 
 @dataclass
@@ -29,12 +38,12 @@ class ChunkRecord:
 
 class SimpleRAGPipeline:
     def __init__(self) -> None:
-        self._embedder: SentenceTransformer | None = None
-        self._tokenizer = None
-        self._generator_model = None
+        STORAGE_DIR.mkdir(exist_ok=True)
+        self._client = None
         self._index: faiss.IndexFlatIP | None = None
         self._chunks: list[ChunkRecord] = []
         self._document_name: str | None = None
+        self._restore_index()
 
     def process_pdf(self, file_path: str) -> dict[str, Any]:
         pdf_path = Path(file_path)
@@ -61,6 +70,7 @@ class SimpleRAGPipeline:
         self._chunks = chunk_records
         self._document_name = pdf_path.name
         self._build_index()
+        self._persist_index()
 
         return {
             "filename": pdf_path.name,
@@ -83,12 +93,7 @@ class SimpleRAGPipeline:
                 "mode": "llm",
             }
 
-        embedder = self._get_embedder()
-        query_embedding = embedder.encode(
-            [question],
-            convert_to_numpy=True,
-            normalize_embeddings=True,
-        ).astype("float32")
+        query_embedding = self._embed_query(question)
 
         search_k = min(top_k, len(self._chunks))
         scores, indices = self._index.search(query_embedding, search_k)
@@ -102,20 +107,14 @@ class SimpleRAGPipeline:
         if not retrieved_chunks:
             raise ValueError("No relevant context was found for that question.")
 
-        if not self._has_query_overlap(question, retrieved_chunks):
+        if not self._should_use_rag(question, retrieved_chunks, scores[0][: len(retrieved_chunks)]):
+            answer = self._generate_answer(self._build_general_prompt(question))
             return {
-                "answer": f"I could not find information about '{question}' in the uploaded PDF.",
-                "sources": [
-                    {
-                        "source": chunk.source,
-                        "page": chunk.page,
-                        "preview": chunk.text[:180].strip(),
-                    }
-                    for chunk in retrieved_chunks
-                ],
-                "scores": [round(float(score), 4) for score in scores[0][: len(retrieved_chunks)]],
-                "document": self._document_name,
-                "mode": "rag",
+                "answer": answer,
+                "sources": [],
+                "scores": [],
+                "document": None,
+                "mode": "llm",
             }
 
         prompt = self._build_prompt(question, retrieved_chunks)
@@ -137,57 +136,99 @@ class SimpleRAGPipeline:
         }
 
     def warm_up(self) -> None:
-        self._get_embedder()
-        self._get_tokenizer()
-        self._get_generator_model()
+        self._get_client()
 
     def _build_index(self) -> None:
-        embedder = self._get_embedder()
         chunk_texts = [chunk.text for chunk in self._chunks]
-        embeddings = embedder.encode(
-            chunk_texts,
-            batch_size=16,
-            convert_to_numpy=True,
-            normalize_embeddings=True,
-        ).astype("float32")
+        embeddings = self._embed_texts(chunk_texts)
 
         self._index = faiss.IndexFlatIP(embeddings.shape[1])
         self._index.add(embeddings)
 
-    def _get_embedder(self) -> SentenceTransformer:
-        if self._embedder is None:
-            self._embedder = SentenceTransformer(EMBEDDING_MODEL_NAME)
-        return self._embedder
+    def _persist_index(self) -> None:
+        if self._index is None:
+            return
 
-    def _get_tokenizer(self):
-        if self._tokenizer is None:
-            self._tokenizer = AutoTokenizer.from_pretrained(GENERATION_MODEL_NAME)
-        return self._tokenizer
+        faiss.write_index(self._index, str(INDEX_PATH))
+        metadata = {
+            "document_name": self._document_name,
+            "embedding_model": EMBEDDING_MODEL_NAME,
+            "generation_model": GENERATION_MODEL_NAME,
+            "chunks": [
+                {
+                    "text": chunk.text,
+                    "source": chunk.source,
+                    "page": chunk.page,
+                }
+                for chunk in self._chunks
+            ],
+        }
+        METADATA_PATH.write_text(json.dumps(metadata, ensure_ascii=True, indent=2), encoding="utf-8")
 
-    def _get_generator_model(self):
-        if self._generator_model is None:
-            self._generator_model = AutoModelForSeq2SeqLM.from_pretrained(GENERATION_MODEL_NAME)
-            self._generator_model.eval()
-        return self._generator_model
+    def _restore_index(self) -> None:
+        if not INDEX_PATH.exists() or not METADATA_PATH.exists():
+            return
+
+        try:
+            metadata = json.loads(METADATA_PATH.read_text(encoding="utf-8"))
+            if metadata.get("embedding_model") != EMBEDDING_MODEL_NAME:
+                self._index = None
+                self._chunks = []
+                self._document_name = None
+                return
+            self._document_name = metadata.get("document_name")
+            self._chunks = [
+                ChunkRecord(
+                    text=item["text"],
+                    source=item["source"],
+                    page=item["page"],
+                )
+                for item in metadata.get("chunks", [])
+            ]
+            if self._chunks:
+                self._index = faiss.read_index(str(INDEX_PATH))
+        except Exception:
+            self._index = None
+            self._chunks = []
+            self._document_name = None
+
+    def _get_client(self):
+        if self._client is None:
+            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            if not api_key:
+                raise ValueError("GEMINI_API_KEY is not set. Add it to backend/.env or your environment.")
+            self._client = genai.Client(api_key=api_key)
+        return self._client
+
+    def _embed_texts(self, texts: list[str]) -> np.ndarray:
+        client = self._get_client()
+        response = client.models.embed_content(
+            model=EMBEDDING_MODEL_NAME,
+            contents=texts,
+            config=types.EmbedContentConfig(task_type="RETRIEVAL_DOCUMENT"),
+        )
+        embeddings = np.array([item.values for item in response.embeddings], dtype="float32")
+        faiss.normalize_L2(embeddings)
+        return embeddings
+
+    def _embed_query(self, question: str) -> np.ndarray:
+        client = self._get_client()
+        response = client.models.embed_content(
+            model=EMBEDDING_MODEL_NAME,
+            contents=[question],
+            config=types.EmbedContentConfig(task_type="QUESTION_ANSWERING"),
+        )
+        embeddings = np.array([item.values for item in response.embeddings], dtype="float32")
+        faiss.normalize_L2(embeddings)
+        return embeddings
 
     def _generate_answer(self, prompt: str) -> str:
-        tokenizer = self._get_tokenizer()
-        model = self._get_generator_model()
-        inputs = tokenizer(
-            prompt,
-            return_tensors="pt",
-            truncation=True,
-            max_length=1024,
+        client = self._get_client()
+        response = client.models.generate_content(
+            model=GENERATION_MODEL_NAME,
+            contents=prompt,
         )
-
-        with torch.no_grad():
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=180,
-                do_sample=False,
-            )
-
-        return tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
+        return (response.text or "").strip()
 
     @staticmethod
     def _has_query_overlap(question: str, chunks: list[ChunkRecord]) -> bool:
@@ -200,6 +241,35 @@ class SimpleRAGPipeline:
 
         combined_context = " ".join(chunk.text.lower() for chunk in chunks)
         return any(term in combined_context for term in query_terms)
+
+    @staticmethod
+    def _is_general_knowledge_or_math(question: str) -> bool:
+        cleaned = question.strip().lower()
+        if re.fullmatch(r"[\d\s+\-*/().=]+", cleaned):
+            return True
+
+        general_patterns = (
+            "who won",
+            "what is",
+            "who is",
+            "calculate",
+            "solve",
+            "capital of",
+            "today",
+            "ipl",
+            "cricket",
+        )
+        return any(pattern in cleaned for pattern in general_patterns)
+
+    def _should_use_rag(self, question: str, chunks: list[ChunkRecord], scores: Any) -> bool:
+        if self._is_general_knowledge_or_math(question) and not self._has_query_overlap(question, chunks):
+            return False
+
+        if not self._has_query_overlap(question, chunks):
+            return False
+
+        top_score = float(scores[0]) if len(scores) else 0.0
+        return top_score >= MIN_RAG_SCORE
 
     @staticmethod
     def _split_text(text: str, chunk_size: int = 700, chunk_overlap: int = 120) -> list[str]:

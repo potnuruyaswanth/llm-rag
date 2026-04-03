@@ -13,52 +13,60 @@
     <main class="page">
         <section class="hero">
             <p class="eyebrow">Mini Project</p>
-            <h1>Build a simple LLM + RAG workflow from your PDF</h1>
+            <h1>Chat with an LLM that can use your PDF as RAG context</h1>
             <p class="hero-copy">
-                Upload one document, create embeddings, retrieve the most relevant chunks,
-                and let a lightweight local model answer questions using that context.
+                Upload one document, chunk it, embed it, store the vector index, and let the app
+                answer questions either with RAG from your PDF or directly from the LLM.
             </p>
         </section>
 
-        <section class="panel">
-            <div class="panel-header">
-                <h2>1. Upload PDF</h2>
-                <p>Index a document before asking questions.</p>
-            </div>
-
-            <div class="upload-row">
-                <input type="file" id="fileInput" accept=".pdf">
-                <button id="uploadBtn" type="button">Upload and Index</button>
-            </div>
-
-            <p id="selectedFile" class="muted">No file selected.</p>
-            <p id="activeDocument" class="muted">No document is indexed yet.</p>
-            <p id="uploadStatus" class="status">No file uploaded yet.</p>
-            <p id="uploadHint" class="muted">Choose a PDF, then click Upload and Index to use it for RAG.</p>
-        </section>
-
-        <section class="panel">
-            <div class="panel-header">
-                <h2>2. Ask a Question</h2>
-                <p>If a PDF is uploaded, the app answers with RAG. Otherwise it answers directly with the LLM.</p>
-            </div>
-
-            <label class="label" for="question">Question</label>
-            <textarea id="question" rows="4" placeholder="What is the main topic of this document?"></textarea>
-
-            <button id="askBtn" type="button">Generate Answer</button>
-
-            <div class="result-card">
-                <h3>Answer</h3>
-                <p id="answer">Your answer will appear here.</p>
-            </div>
-
-            <div class="result-card">
-                <h3>Retrieved Context</h3>
-                <div id="sources" class="sources">
-                    <p class="muted">No sources retrieved yet.</p>
+        <section class="workspace">
+            <aside class="panel sidebar">
+                <div class="panel-header">
+                    <h2>Document Setup</h2>
+                    <p>Upload a PDF to enable retrieval-augmented answers.</p>
                 </div>
-            </div>
+
+                <div class="upload-row">
+                    <input type="file" id="fileInput" accept=".pdf">
+                    <button id="uploadBtn" type="button">Upload and Index</button>
+                </div>
+
+                <div class="status-stack">
+                    <p id="selectedFile" class="muted">No file selected.</p>
+                    <p id="activeDocument" class="muted">No document is indexed yet.</p>
+                    <p id="uploadStatus" class="status">No file uploaded yet.</p>
+                    <p id="uploadHint" class="muted">Choose a PDF, then click Upload and Index to use it for RAG.</p>
+                </div>
+
+                <div class="result-card compact">
+                    <h3>How It Works</h3>
+                    <p class="muted">Upload PDF -> chunk text -> create embeddings -> store FAISS index -> retrieve relevant chunks -> send context plus question to the LLM.</p>
+                </div>
+            </aside>
+
+            <section class="panel chat-panel">
+                <div class="panel-header">
+                    <h2>LLM + RAG Chat</h2>
+                    <p>If a PDF is indexed, answers use retrieved context. Without a PDF, answers come directly from the LLM.</p>
+                </div>
+
+                <div id="chatFeed" class="chat-feed">
+                    <article class="message assistant-message">
+                        <p class="message-role">Assistant</p>
+                        <p>Hello. Upload a PDF for RAG-based answers, or ask a general question to use the LLM directly.</p>
+                    </article>
+                </div>
+
+                <div class="composer">
+                    <label class="label" for="question">Message</label>
+                    <textarea id="question" rows="3" placeholder="Ask about your PDF or ask a general question..."></textarea>
+                    <div class="composer-actions">
+                        <p id="modeIndicator" class="muted">Current mode: LLM only</p>
+                        <button id="askBtn" type="button">Send Message</button>
+                    </div>
+                </div>
+            </section>
         </section>
     </main>
 

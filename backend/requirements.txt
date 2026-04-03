@@ -1,10 +1,8 @@
 fastapi
 uvicorn
 faiss-cpu
+google-genai
 numpy
-sentence-transformers
-sentencepiece
-transformers
-torch
 pypdf
 python-multipart
+python-dotenv

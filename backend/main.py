@@ -1,4 +1,5 @@
 from pathlib import Path
+import logging
 from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -8,6 +9,7 @@ from pydantic import BaseModel, Field
 from rag_pipeline import process_pdf, get_answer
 
 app = FastAPI(title="Simple LLM + RAG API")
+logger = logging.getLogger(__name__)
 
 app.add_middleware(
     CORSMiddleware,
@@ -62,7 +64,8 @@ async def upload_pdf(file: UploadFile = File(...)) -> dict[str, object]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail="Failed to process the PDF.") from exc
+        logger.exception("PDF processing failed")
+        raise HTTPException(status_code=500, detail=f"Failed to process the PDF: {exc}") from exc
 
     return {
         "message": "PDF processed successfully.",
@@ -77,6 +80,7 @@ def ask_question(payload: AskRequest) -> dict[str, object]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail="Failed to generate an answer.") from exc
+        logger.exception("Answer generation failed")
+        raise HTTPException(status_code=500, detail=f"Failed to generate an answer: {exc}") from exc
 
     return result

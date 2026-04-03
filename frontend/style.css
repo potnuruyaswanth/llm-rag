@@ -30,6 +30,13 @@ body {
     padding: 56px 0 72px;
 }
 
+.workspace {
+    display: grid;
+    grid-template-columns: 320px minmax(0, 1fr);
+    gap: 22px;
+    align-items: start;
+}
+
 .hero {
     margin-bottom: 28px;
 }
@@ -82,6 +89,17 @@ h1 {
     backdrop-filter: blur(12px);
 }
 
+.sidebar {
+    position: sticky;
+    top: 24px;
+}
+
+.chat-panel {
+    min-height: 72vh;
+    display: flex;
+    flex-direction: column;
+}
+
 .panel-header {
     margin-bottom: 18px;
 }
@@ -96,6 +114,11 @@ h1 {
     display: flex;
     gap: 12px;
     flex-wrap: wrap;
+}
+
+.status-stack {
+    display: grid;
+    gap: 8px;
 }
 
 .label {
@@ -118,6 +141,78 @@ textarea {
 textarea {
     resize: vertical;
     min-height: 120px;
+}
+
+.chat-feed {
+    display: grid;
+    gap: 14px;
+    min-height: 420px;
+    max-height: 58vh;
+    overflow-y: auto;
+    padding-right: 6px;
+}
+
+.message {
+    max-width: 88%;
+    padding: 16px 18px;
+    border-radius: 20px;
+    animation: rise 0.22s ease;
+}
+
+.assistant-message {
+    background: rgba(255, 249, 241, 0.96);
+    border: 1px solid rgba(84, 64, 44, 0.12);
+    justify-self: start;
+}
+
+.user-message {
+    background: linear-gradient(135deg, var(--accent) 0%, #d97a3d 100%);
+    color: white;
+    justify-self: end;
+}
+
+.message-role {
+    margin: 0 0 8px;
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 700;
+    opacity: 0.78;
+}
+
+.message p:last-child {
+    margin-bottom: 0;
+}
+
+.message-sources {
+    margin-top: 14px;
+    display: block;
+}
+
+.source-empty {
+    margin: 0;
+}
+
+.source-summary {
+    margin: 0;
+    padding-top: 10px;
+    border-top: 1px solid rgba(84, 64, 44, 0.1);
+    font-size: 0.95rem;
+    color: var(--muted);
+}
+
+.composer {
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(84, 64, 44, 0.12);
+}
+
+.composer-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 14px;
 }
 
 button {
@@ -160,6 +255,10 @@ button:disabled {
     border: 1px solid rgba(84, 64, 44, 0.12);
 }
 
+.compact {
+    margin-top: 22px;
+}
+
 .result-card h3 {
     margin-bottom: 10px;
 }
@@ -189,6 +288,14 @@ button:disabled {
         padding: 32px 0 48px;
     }
 
+    .workspace {
+        grid-template-columns: 1fr;
+    }
+
+    .sidebar {
+        position: static;
+    }
+
     .panel {
         padding: 18px;
         border-radius: 20px;
@@ -200,5 +307,25 @@ button:disabled {
 
     button {
         width: 100%;
+    }
+
+    .composer-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .message {
+        max-width: 100%;
+    }
+}
+
+@keyframes rise {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
     }
 }
